@@ -662,10 +662,10 @@ class AIOverlayAssistant {
   initializeSecureStorage() {
     try {
       this.secureStorage = new SecureStorageService();
-      
+
       // Set up secure storage event listeners
       this.setupSecureStorageEvents();
-      
+
       console.log('Secure storage service initialized successfully');
       console.log('Storage status:', this.secureStorage.getStatus());
     } catch (error) {
@@ -676,16 +676,19 @@ class AIOverlayAssistant {
   async initializeOllamaService() {
     try {
       this.ollamaService = new OllamaService();
-      
+
       // Set up Ollama service event listeners
       this.setupOllamaServiceEvents();
-      
+
       // Initialize the service
       const initialized = await this.ollamaService.initialize();
-      
+
       if (initialized) {
         console.log('Ollama service initialized successfully');
-        console.log('Available models:', this.ollamaService.getAvailableModels().map(m => m.name));
+        console.log(
+          'Available models:',
+          this.ollamaService.getAvailableModels().map(m => m.name)
+        );
         console.log('Current model:', this.ollamaService.getCurrentModel());
       } else {
         console.error('Failed to initialize Ollama service');
@@ -700,13 +703,13 @@ class AIOverlayAssistant {
       // Create Gemini service with secure storage
       const GeminiService = require('./services/geminiService');
       this.geminiService = new GeminiService(this.secureStorage);
-      
+
       // Set up Gemini service event listeners
       this.setupGeminiServiceEvents();
-      
+
       // Initialize the service
       const initialized = await this.geminiService.initialize();
-      
+
       if (initialized) {
         console.log('Gemini service initialized successfully');
         console.log('Current model:', this.geminiService.currentModel);
@@ -956,7 +959,7 @@ class AIOverlayAssistant {
       this.sendToRenderer('ollama-error', {
         type: 'service-not-connected',
         error: 'Ollama service is not connected',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
       return;
     }
@@ -970,14 +973,14 @@ class AIOverlayAssistant {
     try {
       // Create a prompt based on clipboard content
       const prompt = this.createPromptFromClipboard(changeEvent);
-      
+
       // Validate prompt
       if (!prompt || prompt.trim().length === 0) {
         throw new Error('Generated prompt is empty');
       }
 
       console.log('Generated prompt:', prompt.substring(0, 200) + '...');
-      
+
       // Generate response using Ollama with enhanced options
       const result = await this.ollamaService.generateResponse(prompt, {
         temperature: 0.7,
@@ -985,31 +988,30 @@ class AIOverlayAssistant {
         stream: true,
         topP: 0.9,
         topK: 40,
-        repeatPenalty: 1.1
+        repeatPenalty: 1.1,
       });
 
       console.log('AI response generated successfully');
-      
+
       // Store the response in application state for potential reuse
       this.lastGeneratedResponse = {
         prompt: prompt,
         response: result,
         timestamp: Date.now(),
-        contentType: changeEvent.type
+        contentType: changeEvent.type,
       };
-      
     } catch (error) {
       console.error('Failed to generate AI response:', error);
-      
+
       // Enhanced error reporting with more context
       const errorData = {
         type: this.getErrorType(error),
         error: error.message,
         timestamp: Date.now(),
         contentType: changeEvent.type,
-        contentLength: changeEvent.length
+        contentLength: changeEvent.length,
       };
-      
+
       this.sendToRenderer('ollama-error', errorData);
     }
   }
@@ -1276,7 +1278,9 @@ class AIOverlayAssistant {
     });
 
     ipcMain.handle('gemini-health-check', async () => {
-      return this.geminiService ? await this.geminiService.healthCheck() : false;
+      return this.geminiService
+        ? await this.geminiService.healthCheck()
+        : false;
     });
   }
 
@@ -1287,10 +1291,14 @@ class AIOverlayAssistant {
     });
 
     // API key operations
-    ipcMain.handle('secure-storage-store-gemini-api-key', async (event, apiKey, options = {}) => {
-      if (!this.secureStorage) return { success: false, error: 'Secure storage not available' };
-      return await this.secureStorage.storeGeminiApiKey(apiKey, options);
-    });
+    ipcMain.handle(
+      'secure-storage-store-gemini-api-key',
+      async (event, apiKey, options = {}) => {
+        if (!this.secureStorage)
+          return { success: false, error: 'Secure storage not available' };
+        return await this.secureStorage.storeGeminiApiKey(apiKey, options);
+      }
+    );
 
     ipcMain.handle('secure-storage-retrieve-gemini-api-key', () => {
       if (!this.secureStorage) return null;
@@ -1308,10 +1316,14 @@ class AIOverlayAssistant {
     });
 
     // General API key operations
-    ipcMain.handle('secure-storage-store-api-key', async (event, keyName, apiKey, options = {}) => {
-      if (!this.secureStorage) return { success: false, error: 'Secure storage not available' };
-      return await this.secureStorage.storeApiKey(keyName, apiKey, options);
-    });
+    ipcMain.handle(
+      'secure-storage-store-api-key',
+      async (event, keyName, apiKey, options = {}) => {
+        if (!this.secureStorage)
+          return { success: false, error: 'Secure storage not available' };
+        return await this.secureStorage.storeApiKey(keyName, apiKey, options);
+      }
+    );
 
     ipcMain.handle('secure-storage-retrieve-api-key', (event, keyName) => {
       if (!this.secureStorage) return null;
@@ -1340,34 +1352,52 @@ class AIOverlayAssistant {
     });
 
     // Validation
-    ipcMain.handle('secure-storage-validate-api-key-format', (event, apiKey) => {
-      if (!this.secureStorage) return { isValid: false, errors: ['Secure storage not available'] };
-      return this.secureStorage.validateApiKeyFormat(apiKey);
-    });
+    ipcMain.handle(
+      'secure-storage-validate-api-key-format',
+      (event, apiKey) => {
+        if (!this.secureStorage)
+          return { isValid: false, errors: ['Secure storage not available'] };
+        return this.secureStorage.validateApiKeyFormat(apiKey);
+      }
+    );
 
-    ipcMain.handle('secure-storage-test-api-key-against-gemini', async (event, apiKey) => {
-      if (!this.secureStorage) return { isValid: false, error: 'Secure storage not available' };
-      return await this.secureStorage.testApiKeyAgainstGemini(apiKey);
-    });
+    ipcMain.handle(
+      'secure-storage-test-api-key-against-gemini',
+      async (event, apiKey) => {
+        if (!this.secureStorage)
+          return { isValid: false, error: 'Secure storage not available' };
+        return await this.secureStorage.testApiKeyAgainstGemini(apiKey);
+      }
+    );
 
-    ipcMain.handle('secure-storage-validate-stored-api-key', async (event, keyName) => {
-      if (!this.secureStorage) return { isValid: false, error: 'Secure storage not available' };
-      return await this.secureStorage.validateStoredApiKey(keyName);
-    });
+    ipcMain.handle(
+      'secure-storage-validate-stored-api-key',
+      async (event, keyName) => {
+        if (!this.secureStorage)
+          return { isValid: false, error: 'Secure storage not available' };
+        return await this.secureStorage.validateStoredApiKey(keyName);
+      }
+    );
 
     // Migration and backup operations
-    ipcMain.handle('secure-storage-migrate-from-environment', async (event, keyName, envVarName) => {
-      if (!this.secureStorage) return { success: false, error: 'Secure storage not available' };
-      return this.secureStorage.migrateFromEnvironment(keyName, envVarName);
-    });
+    ipcMain.handle(
+      'secure-storage-migrate-from-environment',
+      async (event, keyName, envVarName) => {
+        if (!this.secureStorage)
+          return { success: false, error: 'Secure storage not available' };
+        return this.secureStorage.migrateFromEnvironment(keyName, envVarName);
+      }
+    );
 
     ipcMain.handle('secure-storage-export-api-key', (event, keyName) => {
-      if (!this.secureStorage) return { success: false, error: 'Secure storage not available' };
+      if (!this.secureStorage)
+        return { success: false, error: 'Secure storage not available' };
       return this.secureStorage.exportApiKey(keyName);
     });
 
     ipcMain.handle('secure-storage-import-api-key', (event, exportData) => {
-      if (!this.secureStorage) return { success: false, error: 'Secure storage not available' };
+      if (!this.secureStorage)
+        return { success: false, error: 'Secure storage not available' };
       return this.secureStorage.importApiKey(exportData);
     });
 
@@ -1409,11 +1439,15 @@ class AIOverlayAssistant {
     });
 
     ipcMain.handle('ollama-validate-model', async (event, modelName) => {
-      return this.ollamaService ? await this.ollamaService.validateModel(modelName) : false;
+      return this.ollamaService
+        ? await this.ollamaService.validateModel(modelName)
+        : false;
     });
 
     ipcMain.handle('ollama-health-check', async () => {
-      return this.ollamaService ? await this.ollamaService.healthCheck() : false;
+      return this.ollamaService
+        ? await this.ollamaService.healthCheck()
+        : false;
     });
 
     ipcMain.handle('ollama-generate', async (event, prompt, options) => {
@@ -1429,11 +1463,11 @@ class AIOverlayAssistant {
     });
 
     // New handlers for enhanced integration
-    ipcMain.handle('ollama-process-clipboard', async (event) => {
+    ipcMain.handle('ollama-process-clipboard', async event => {
       // Get current clipboard content and process it
       const clipboard = require('electron').clipboard;
       const content = clipboard.readText();
-      
+
       if (!content || content.trim().length === 0) {
         throw new Error('Clipboard is empty');
       }
@@ -1443,7 +1477,7 @@ class AIOverlayAssistant {
         type: this.detectContentType(content),
         length: content.length,
         isSignificant: true,
-        isEmpty: false
+        isEmpty: false,
       };
 
       await this.handleClipboardChange(changeEvent);
@@ -1465,12 +1499,22 @@ class AIOverlayAssistant {
     if (content.includes('http://') || content.includes('https://')) {
       return 'url';
     }
-    if (content.includes('@') && content.includes('.') && content.includes(' ')) {
+    if (
+      content.includes('@') &&
+      content.includes('.') &&
+      content.includes(' ')
+    ) {
       return 'email';
     }
-    if (content.includes('function') || content.includes('const ') || content.includes('let ') || 
-        content.includes('var ') || content.includes('if(') || content.includes('for(') ||
-        content.includes('{') && content.includes('}')) {
+    if (
+      content.includes('function') ||
+      content.includes('const ') ||
+      content.includes('let ') ||
+      content.includes('var ') ||
+      content.includes('if(') ||
+      content.includes('for(') ||
+      (content.includes('{') && content.includes('}'))
+    ) {
       return 'code';
     }
     if (content.length > 1000) {
@@ -1478,7 +1522,6 @@ class AIOverlayAssistant {
     }
     return 'text';
   }
-}
 }
 
 // Create the application instance
