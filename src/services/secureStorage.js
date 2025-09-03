@@ -1,5 +1,5 @@
 const { safeStorage } = require('electron');
-const Store = require('electron-store');
+const Store = require('electron-store').default;
 const { EventEmitter } = require('events');
 
 class SecureStorageService extends EventEmitter {
@@ -51,8 +51,18 @@ class SecureStorageService extends EventEmitter {
 
   checkStorageBackend() {
     try {
-      // Get the selected storage backend for security assessment
-      this.storageBackend = safeStorage.getSelectedStorageBackend();
+      // Check if safeStorage is available and determine backend
+      if (
+        safeStorage &&
+        typeof safeStorage.isEncryptionAvailable === 'function'
+      ) {
+        this.storageBackend = safeStorage.isEncryptionAvailable()
+          ? 'secure'
+          : 'basic_text';
+      } else {
+        // Fallback to basic text storage
+        this.storageBackend = 'basic_text';
+      }
 
       console.log(`Storage backend: ${this.storageBackend}`);
 
@@ -62,7 +72,9 @@ class SecureStorageService extends EventEmitter {
       return this.storageBackend;
     } catch (error) {
       console.error('Failed to check storage backend:', error);
-      throw error;
+      // Fallback to basic text storage
+      this.storageBackend = 'basic_text';
+      return this.storageBackend;
     }
   }
 

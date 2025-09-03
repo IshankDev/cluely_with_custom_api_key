@@ -17,6 +17,7 @@ class AIOverlayAssistant {
       backend: 'ollama',
       modelName: 'llama3.2',
       geminiApiKey: '',
+      position: 'center-top',
     };
 
     this.initializeApp();
@@ -73,70 +74,128 @@ class AIOverlayAssistant {
       primaryDisplay.workAreaSize;
 
     // Calculate optimal window size and position
-    const windowWidth = Math.min(400, screenWidth * 0.3); // Max 30% of screen width
-    const windowHeight = Math.min(200, screenHeight * 0.2); // Max 20% of screen height
+    const windowWidth = Math.min(screenWidth * 0.15); // Max 90% of screen width
+    const windowHeight = 40; // Fixed height for just the control bar
 
-    // Position in top-right corner with margin
+    // Position in center-top with margin
     const margin = 20;
-    const x = screenWidth - windowWidth - margin;
+    const x = Math.round((screenWidth - windowWidth) / 2);
     const y = margin;
 
     // Platform-specific window options
     const windowOptions = {
       width: windowWidth,
       height: windowHeight,
+
       x: x,
       y: y,
-      frame: false,
+      frame: false, // Remove window frame completely
       transparent: true,
       alwaysOnTop: true,
       skipTaskbar: true,
       resizable: false,
       movable: true,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
+      hasShadow: false,
       focusable: false, // Prevent focus stealing
+      minimizable: false, // Prevent minimizing
+      maximizable: false, // Prevent maximizing
+      fullscreenable: false, // Prevent fullscreen
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
         enableRemoteModule: false,
+        webSecurity: false,
+        allowRunningInsecureContent: true,
       },
       show: false, // Don't show until ready
       // Enhanced transparency settings
-      hasShadow: false, // Remove window shadow for cleaner look
+      backgroundColor: 'transparent', // Completely transparent background
     };
 
-    // Platform-specific adjustments
+    // Platform-specific adjustments to ensure no title bar
     if (process.platform === 'win32') {
       // Windows-specific settings
       windowOptions.thickFrame = false; // Remove thick frame
-      windowOptions.titleBarStyle = 'hidden'; // Hide title bar
+      windowOptions.titleBarStyle = 'hidden'; // Hide title bar completely
       windowOptions.autoHideMenuBar = true; // Hide menu bar
+      windowOptions.frame = false; // Ensure no frame
+      windowOptions.minimizable = false; // Prevent minimizing
+      windowOptions.maximizable = false; // Prevent maximizing
     } else if (process.platform === 'darwin') {
-      // macOS-specific settings
-      windowOptions.titleBarStyle = 'hiddenInset'; // Hidden title bar with inset
+      // macOS-specific settings - completely hide title bar
+      windowOptions.titleBarStyle = 'hiddenInset'; // Hidden title bar with inset (removes space)
       windowOptions.vibrancy = 'under-window'; // Add vibrancy effect
+      windowOptions.backgroundColor = 'transparent'; // Completely transparent
+      windowOptions.frame = false; // Ensure no frame
+      windowOptions.minimizable = false; // Prevent minimizing
+      windowOptions.maximizable = false; // Prevent maximizing
+      windowOptions.fullscreenable = false; // Prevent fullscreen
+      windowOptions.trafficLightPosition = { x: 0, y: 0 }; // Move traffic lights off-screen
+      windowOptions.titleBarOverlay = false; // Disable title bar overlay
+      // Force remove title bar space by adjusting window bounds
+      windowOptions.useContentSize = true; // Use content size instead of window size
     } else if (process.platform === 'linux') {
       // Linux-specific settings
       windowOptions.icon = path.join(__dirname, 'assets', 'icon.png'); // Set icon
+      windowOptions.backgroundColor = 'transparent'; // Completely transparent
+      windowOptions.frame = false; // Ensure no frame
+      windowOptions.minimizable = false; // Prevent minimizing
+      windowOptions.maximizable = false; // Prevent maximizing
     }
 
     // Create the overlay window with platform-specific settings
     this.mainWindow = new BrowserWindow(windowOptions);
 
     // Load the overlay HTML
-    this.mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+    const htmlPath = path.join(__dirname, 'renderer', 'index.html');
+    console.log('Loading HTML file:', htmlPath);
+    console.log('HTML file exists:', require('fs').existsSync(htmlPath));
+
+    this.mainWindow.loadFile(htmlPath);
 
     // Show window when ready
     this.mainWindow.once('ready-to-show', () => {
+      console.log('Window ready-to-show event fired');
+
+      // Force remove title bar and window controls
+      this.mainWindow.setMenu(null); // Remove menu bar
+
       this.mainWindow.show();
+
+      // Make window invisible in screen sharing
+      this.setWindowDisplayAffinity();
+
+      // Setup screen sharing detection
+      this.setupScreenSharingDetection();
 
       // Platform-specific visibility and focus settings
       this.applyPlatformSpecificSettings();
 
       // Configure mouse event behavior
       this.setupMouseEventHandling();
+
+      // Open DevTools for debugging (only in development)
+      if (
+        process.argv.includes('--dev') ||
+        process.env.NODE_ENV === 'development'
+      ) {
+        // this.mainWindow.webContents.openDevTools();
+      }
+
+      // Check if webContents is ready
+      console.log(
+        'WebContents ready state:',
+        this.mainWindow.webContents.isLoading()
+      );
+      console.log('WebContents URL:', this.mainWindow.webContents.getURL());
+
+      // Send a test message to verify renderer is working
+      setTimeout(() => {
+        console.log('Sending initial test message to renderer');
+        this.sendToRenderer('test-message', {
+          message: 'Initial test from main process',
+        });
+      }, 1000);
 
       console.log('AI Overlay Assistant window created and shown');
     });
@@ -154,24 +213,9 @@ class AIOverlayAssistant {
       }
     });
 
-    // Handle focus events to prevent focus stealing
-    this.mainWindow.on('focus', () => {
-      // Immediately blur the window to prevent focus stealing
-      this.mainWindow.blur();
-    });
+    // Note: Window is set to focusable: false, so no focus handling needed
 
-    // Handle window activation
-    this.mainWindow.on('show', () => {
-      // Ensure window doesn't steal focus when shown
-      setTimeout(() => {
-        this.mainWindow.blur();
-      }, 100);
-    });
-
-    // Development: Open DevTools in development mode
-    if (process.argv.includes('--dev')) {
-      this.mainWindow.webContents.openDevTools();
-    }
+    // Development: DevTools are now opened conditionally in the ready-to-show event
   }
 
   registerGlobalShortcut() {
@@ -276,6 +320,475 @@ class AIOverlayAssistant {
       console.log('Overlay closed by user');
       this.mainWindow.hide();
     });
+
+    ipcMain.on('overlay-position-changed', (event, position) => {
+      console.log('Overlay position changed to:', position);
+      // The position is handled by the renderer process
+      // This is just for logging and potential future main process actions
+    });
+
+    // Handle settings window requests
+    ipcMain.on('open-settings-window', () => {
+      console.log('=== RECEIVED OPEN-SETTINGS-WINDOW REQUEST ===');
+      console.log('Settings window exists:', !!this.settingsWindow);
+      this.openSettingsWindow();
+    });
+
+    // Handle settings save request
+    ipcMain.on('save-settings', (event, settings) => {
+      console.log('Received settings save request:', settings);
+      this.saveSettings(settings);
+    });
+
+    // Handle settings request
+    ipcMain.on('request-settings', event => {
+      console.log('Received settings request');
+      this.sendSettingsToRenderer(event.sender);
+    });
+
+    // Handle settings window close request
+    ipcMain.on('close-settings-window', () => {
+      console.log('Received request to close settings window');
+      if (this.settingsWindow) {
+        this.settingsWindow.close();
+        this.settingsWindow = null;
+      }
+    });
+
+    // Handle test message
+    ipcMain.on('test-message', (event, data) => {
+      console.log('Received test message from renderer:', data);
+    });
+
+    // Handle test message from renderer
+    ipcMain.on('test-message-from-renderer', (event, data) => {
+      console.log('Received test message from renderer test.js:', data);
+
+      // Send a response back to verify communication
+      if (this.mainWindow && this.mainWindow.webContents) {
+        this.mainWindow.webContents.send('test-response-from-main', {
+          message: 'Test response from main process',
+          timestamp: Date.now(),
+          received: data,
+        });
+      }
+    });
+
+    // Handle window movement from renderer
+    ipcMain.on('move-window', (event, data) => {
+      console.log('Received move-window IPC:', data);
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        const [currentX, currentY] = this.mainWindow.getPosition();
+        const newX = currentX + data.deltaX;
+        const newY = currentY + data.deltaY;
+
+        console.log('Moving window from', currentX, currentY, 'to', newX, newY);
+        this.mainWindow.setPosition(newX, newY);
+      } else {
+        console.log('Cannot move window - window not available or destroyed');
+      }
+    });
+
+    // Handle window drag completion
+    ipcMain.on('window-drag-complete', (event, data) => {
+      console.log('Window drag completed at position:', data);
+    });
+
+    // Handle toggle listening
+    ipcMain.on('toggle-listening', (event, isListening) => {
+      console.log('Toggle listening:', isListening);
+      // You can add logic here to enable/disable clipboard monitoring
+    });
+
+    // Handle submit question
+    ipcMain.on('submit-question', (event, data) => {
+      console.log('Submit question:', data.question);
+      // Process the question with AI backend
+      this.processQuestion(data.question);
+    });
+
+    // Handle toggle window visibility
+    ipcMain.on('toggle-window-visibility', (event, isVisible) => {
+      console.log('Toggle window visibility:', isVisible);
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        if (isVisible) {
+          this.mainWindow.show();
+        } else {
+          this.mainWindow.hide();
+        }
+      }
+    });
+
+    // Handle toggle display affinity (screen sharing visibility)
+    ipcMain.on('toggle-display-affinity', (event, enabled) => {
+      console.log('=== TOGGLE SCREEN SHARING CONTROL REQUESTED ===');
+      console.log('Enabled:', enabled);
+      console.log('Main window exists:', !!this.mainWindow);
+      console.log(
+        'Main window destroyed:',
+        this.mainWindow ? this.mainWindow.isDestroyed() : 'No window'
+      );
+
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        try {
+          if (enabled) {
+            // Enable screen sharing control using available methods
+            this.mainWindow.setVisibleOnAllWorkspaces(true, {
+              visibleOnFullScreen: true,
+            });
+            this.mainWindow.setAlwaysOnTop(true, 'screen-saver');
+            this.mainWindow.setSkipTaskbar(true);
+
+            console.log(
+              '✅ Screen sharing control ENABLED - window configured for less intrusive behavior'
+            );
+
+            // Test the settings
+            this.testDisplayAffinity();
+
+            // Send confirmation to renderer
+            this.sendToRenderer('display-affinity-updated', {
+              enabled: true,
+              status: 'success',
+              message: 'Window configured for screen sharing control',
+            });
+          } else {
+            // Disable screen sharing control
+            this.mainWindow.setVisibleOnAllWorkspaces(false);
+            this.mainWindow.setAlwaysOnTop(false);
+            this.mainWindow.setSkipTaskbar(false);
+
+            console.log(
+              '✅ Screen sharing control DISABLED - window restored to normal behavior'
+            );
+
+            // Test the settings
+            this.testDisplayAffinity();
+
+            // Send confirmation to renderer
+            this.sendToRenderer('display-affinity-updated', {
+              enabled: false,
+              status: 'success',
+              message: 'Window restored to normal behavior',
+            });
+          }
+        } catch (error) {
+          console.error(
+            '❌ Could not toggle screen sharing control:',
+            error.message
+          );
+
+          // Send error to renderer
+          this.sendToRenderer('display-affinity-updated', {
+            enabled: enabled,
+            status: 'error',
+            message: `Failed to toggle screen sharing control: ${error.message}`,
+          });
+        }
+      } else {
+        console.error(
+          '❌ Cannot toggle screen sharing control - window not available'
+        );
+
+        // Send error to renderer
+        this.sendToRenderer('display-affinity-updated', {
+          enabled: enabled,
+          status: 'error',
+          message: 'Window not available for screen sharing control toggle',
+        });
+      }
+    });
+  }
+
+  setupBackendSwitchingIPCHandlers() {
+    // Handle backend switching requests
+    ipcMain.handle('switch-backend', async (event, backend) => {
+      console.log('Switching backend to:', backend);
+
+      try {
+        this.activeBackend = backend;
+
+        // Update backend configuration
+        this.backendConfig.backend = backend;
+
+        // Save to secure storage
+        if (this.secureStorage) {
+          this.secureStorage.storeBackendConfig(this.backendConfig);
+        }
+
+        // Notify renderer about backend change
+        if (this.mainWindow) {
+          this.mainWindow.webContents.send('backend-switched', backend);
+        }
+
+        return { success: true, backend };
+      } catch (error) {
+        console.error('Failed to switch backend:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // Handle backend status requests
+    ipcMain.handle('get-active-backend', () => {
+      return this.activeBackend;
+    });
+
+    // Handle backend configuration requests
+    ipcMain.handle('get-backend-config', () => {
+      return this.backendConfig;
+    });
+  }
+
+  openSettingsWindow() {
+    if (this.settingsWindow) {
+      // If settings window already exists, just show and focus it
+      this.settingsWindow.show();
+      this.settingsWindow.focus();
+      return;
+    }
+
+    // Create new settings window
+    this.createSettingsWindow();
+  }
+
+  createSettingsWindow() {
+    console.log('=== CREATING SETTINGS WINDOW ===');
+
+    // Get screen dimensions for intelligent positioning
+    const { screen } = require('electron');
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: screenWidth, height: screenHeight } =
+      primaryDisplay.workAreaSize;
+
+    console.log('Screen dimensions:', { screenWidth, screenHeight });
+
+    // Calculate optimal window size and position
+    const windowWidth = Math.min(800, screenWidth * 0.8); // 80% of screen width, max 800px
+    const windowHeight = Math.min(600, screenHeight * 0.8); // 80% of screen height, max 600px
+
+    // Center the window
+    const x = Math.round((screenWidth - windowWidth) / 2);
+    const y = Math.round((screenHeight - windowHeight) / 2);
+
+    console.log('Window position:', { x, y, windowWidth, windowHeight });
+
+    // Settings window options
+    const windowOptions = {
+      width: windowWidth,
+      height: windowHeight,
+      x: x,
+      y: y,
+      frame: true,
+      transparent: false,
+      alwaysOnTop: false,
+      skipTaskbar: false,
+      resizable: true,
+      movable: true,
+      minimizable: true,
+      maximizable: true,
+      fullscreenable: false,
+      focusable: true,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        enableRemoteModule: false,
+      },
+      show: false,
+      title: 'AI Overlay Assistant - Settings',
+    };
+
+    // Platform-specific adjustments
+    if (process.platform === 'darwin') {
+      windowOptions.titleBarStyle = 'default';
+    }
+
+    // Create the settings window
+    this.settingsWindow = new BrowserWindow(windowOptions);
+
+    // Load the settings HTML
+    const settingsPath = path.join(__dirname, 'renderer', 'settings.html');
+    console.log('Loading settings from:', settingsPath);
+    console.log(
+      'Settings file exists:',
+      require('fs').existsSync(settingsPath)
+    );
+
+    this.settingsWindow.loadFile(settingsPath);
+
+    // Show window when ready
+    this.settingsWindow.once('ready-to-show', () => {
+      console.log('=== SETTINGS WINDOW READY TO SHOW ===');
+      this.settingsWindow.show();
+      this.settingsWindow.focus();
+      console.log('Settings window created and shown');
+    });
+
+    // Handle window closed
+    this.settingsWindow.on('closed', () => {
+      console.log('Settings window closed');
+      this.settingsWindow = null;
+    });
+
+    // Handle window close
+    this.settingsWindow.on('close', () => {
+      // Just close the window normally
+      console.log('Settings window close event');
+    });
+
+    // Handle window errors
+    this.settingsWindow.webContents.on(
+      'did-fail-load',
+      (event, errorCode, errorDescription, validatedURL) => {
+        console.error('Settings window failed to load:', {
+          errorCode,
+          errorDescription,
+          validatedURL,
+        });
+      }
+    );
+
+    this.settingsWindow.webContents.on('crashed', () => {
+      console.error('Settings window webContents crashed');
+    });
+  }
+
+  saveSettings(settings) {
+    try {
+      console.log('Saving settings:', settings);
+
+      // Update backend configuration
+      if (settings.backend) {
+        this.backendConfig.backend = settings.backend;
+        this.activeBackend = settings.backend;
+      }
+
+      if (settings.modelName) {
+        this.backendConfig.modelName = settings.modelName;
+      }
+
+      if (settings.geminiApiKey) {
+        this.backendConfig.geminiApiKey = settings.geminiApiKey;
+      }
+
+      // Update overlay position
+      if (settings.position) {
+        this.backendConfig.position = settings.position;
+        // Reposition the main window
+        this.repositionWindowToPosition(settings.position);
+      }
+
+      // Update theme
+      if (settings.theme) {
+        this.backendConfig.theme = settings.theme;
+        // Send theme update to renderer
+        if (this.mainWindow) {
+          this.mainWindow.webContents.send('theme-changed', settings.theme);
+        }
+      }
+
+      // Update auto-hide settings
+      if (settings.autoHide !== undefined) {
+        this.backendConfig.autoHide = settings.autoHide;
+      }
+
+      if (settings.autoHideDelay) {
+        this.backendConfig.autoHideDelay = settings.autoHideDelay;
+      }
+
+      if (settings.autoHideAfterResponse !== undefined) {
+        this.backendConfig.autoHideAfterResponse =
+          settings.autoHideAfterResponse;
+      }
+
+      if (settings.autoHideDelayAfterResponse) {
+        this.backendConfig.autoHideDelayAfterResponse =
+          settings.autoHideDelayAfterResponse;
+      }
+
+      // Save to secure storage
+      if (this.secureStorage) {
+        this.secureStorage.storeBackendConfig(this.backendConfig);
+      }
+
+      // Notify renderer about settings update
+      if (this.mainWindow) {
+        this.mainWindow.webContents.send(
+          'settings-updated',
+          this.backendConfig
+        );
+      }
+
+      console.log('Settings saved successfully');
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+    }
+  }
+
+  sendSettingsToRenderer(webContents) {
+    try {
+      console.log('Sending settings to renderer');
+      webContents.send('settings-loaded', this.backendConfig);
+    } catch (error) {
+      console.error('Failed to send settings to renderer:', error);
+    }
+  }
+
+  repositionWindowToPosition(position) {
+    if (!this.mainWindow) return;
+
+    const { screen } = require('electron');
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: screenWidth, height: screenHeight } =
+      primaryDisplay.workAreaSize;
+
+    const windowWidth = Math.min(400, screenWidth * 0.3);
+    const windowHeight = Math.min(200, screenHeight * 0.2);
+    const margin = 20;
+
+    let x, y;
+
+    switch (position) {
+      case 'center-top':
+        x = Math.round((screenWidth - windowWidth) / 2);
+        y = margin;
+        break;
+      case 'top-right':
+        x = screenWidth - windowWidth - margin;
+        y = margin;
+        break;
+      case 'top-left':
+        x = margin;
+        y = margin;
+        break;
+      case 'bottom-right':
+        x = screenWidth - windowWidth - margin;
+        y = screenHeight - windowHeight - margin;
+        break;
+      case 'bottom-left':
+        x = margin;
+        y = screenHeight - windowHeight - margin;
+        break;
+      case 'center-right':
+        x = screenWidth - windowWidth - margin;
+        y = Math.round((screenHeight - windowHeight) / 2);
+        break;
+      case 'center-left':
+        x = margin;
+        y = Math.round((screenHeight - windowHeight) / 2);
+        break;
+      default:
+        x = Math.round((screenWidth - windowWidth) / 2);
+        y = margin;
+    }
+
+    this.mainWindow.setBounds({
+      x,
+      y,
+      width: windowWidth,
+      height: windowHeight,
+    });
+
+    console.log(`Overlay window repositioned to ${position}:`, { x, y });
   }
 
   setupScreenChangeHandlers() {
@@ -370,6 +883,10 @@ class AIOverlayAssistant {
   applyPlatformSpecificSettings() {
     if (!this.mainWindow) return;
 
+    // Force remove title bar and window controls for all platforms
+    this.mainWindow.setMenu(null); // Remove menu bar
+    this.mainWindow.setMenuBarVisibility(false); // Hide menu bar
+
     // macOS-specific settings
     if (process.platform === 'darwin') {
       // Set window to be visible on all workspaces including fullscreen apps
@@ -379,6 +896,13 @@ class AIOverlayAssistant {
 
       // Use higher always-on-top level for better overlay persistence
       this.mainWindow.setAlwaysOnTop(true, 'screen-saver');
+
+      // Force remove traffic lights (close, minimize, maximize buttons)
+      try {
+        this.mainWindow.setWindowButtonVisibility(false);
+      } catch (error) {
+        console.log('Could not hide window buttons:', error.message);
+      }
 
       console.log('Applied macOS-specific overlay settings');
     }
@@ -396,6 +920,129 @@ class AIOverlayAssistant {
       this.mainWindow.setAlwaysOnTop(true, 'normal');
 
       console.log('Applied Linux-specific overlay settings');
+    }
+  }
+
+  setWindowDisplayAffinity() {
+    if (!this.mainWindow) return;
+
+    try {
+      // Note: setDisplayAffinity is not available in Electron v35.7.5
+      // Use alternative methods for screen sharing control
+
+      // Set window to be visible on all workspaces (including fullscreen apps)
+      this.mainWindow.setVisibleOnAllWorkspaces(true, {
+        visibleOnFullScreen: true,
+      });
+
+      // Set window to always be on top
+      this.mainWindow.setAlwaysOnTop(true, 'screen-saver');
+
+      // Skip taskbar to make it less intrusive
+      this.mainWindow.setSkipTaskbar(true);
+
+      console.log(
+        'Window configured for screen sharing control using alternative methods'
+      );
+
+      // Test function to verify the settings worked
+      this.testDisplayAffinity();
+    } catch (error) {
+      console.log(
+        'Could not configure window for screen sharing control:',
+        error.message
+      );
+      console.log('This feature may not be available on all platforms');
+    }
+  }
+
+  testDisplayAffinity() {
+    if (!this.mainWindow) return;
+
+    try {
+      // Test if the window is configured for screen sharing control
+      const isVisibleOnAllWorkspaces =
+        this.mainWindow.isVisibleOnAllWorkspaces();
+      const isAlwaysOnTop = this.mainWindow.isAlwaysOnTop();
+
+      console.log('Window configuration test:');
+      console.log('- Visible on all workspaces:', isVisibleOnAllWorkspaces);
+      console.log('- Always on top:', isAlwaysOnTop);
+      console.log('- Window should be less intrusive in screen sharing');
+    } catch (error) {
+      console.log('Could not test window configuration:', error.message);
+    }
+  }
+
+  // New method to detect and handle screen sharing
+  setupScreenSharingDetection() {
+    if (!this.mainWindow) return;
+
+    try {
+      // Listen for screen sharing events
+      this.mainWindow.webContents.on('desktop-capturer-get-sources', () => {
+        console.log('Screen sharing detected - hiding overlay window');
+        this.mainWindow.hide();
+      });
+
+      // Alternative: Check for screen recording permission changes
+      this.mainWindow.webContents.on(
+        'media-access-requested',
+        (event, details) => {
+          if (details.mediaTypes.includes('screen')) {
+            console.log(
+              'Screen recording access requested - hiding overlay window'
+            );
+            this.mainWindow.hide();
+          }
+        }
+      );
+
+      // Listen for window focus changes that might indicate screen sharing
+      this.mainWindow.on('blur', () => {
+        // Check if screen sharing is active
+        this.checkForScreenSharing();
+      });
+    } catch (error) {
+      console.log('Could not setup screen sharing detection:', error.message);
+    }
+  }
+
+  checkForScreenSharing() {
+    // This is a basic check - in a real implementation you might want more sophisticated detection
+    try {
+      // Check if any screen sharing apps are running
+      const { exec } = require('child_process');
+
+      if (process.platform === 'darwin') {
+        // macOS - check for common screen sharing apps
+        exec(
+          'ps aux | grep -E "(zoom|teams|slack|discord|obs|quicktime)" | grep -v grep',
+          (error, stdout) => {
+            if (stdout.trim()) {
+              console.log(
+                'Screen sharing app detected - hiding overlay window'
+              );
+              this.mainWindow.hide();
+            }
+          }
+        );
+      } else if (process.platform === 'win32') {
+        // Windows - check for common screen sharing apps
+        exec(
+          'tasklist | findstr /i "zoom teams slack discord obs"',
+          (error, stdout) => {
+            if (stdout.trim()) {
+              console.log(
+                'Screen sharing app detected - hiding overlay window'
+              );
+              this.mainWindow.hide();
+            }
+          }
+        );
+      }
+    } catch (error) {
+      console.log('Could not check for screen sharing apps:', error.message);
     }
   }
 
@@ -700,6 +1347,25 @@ class AIOverlayAssistant {
 
   async initializeGeminiService() {
     try {
+      // Check if Gemini API key exists before attempting to initialize
+      if (!this.secureStorage) {
+        console.log(
+          'Secure storage not available, skipping Gemini service initialization'
+        );
+        return;
+      }
+
+      const hasApiKey = this.secureStorage.hasGeminiApiKey();
+      if (!hasApiKey) {
+        console.log(
+          'No Gemini API key found, skipping Gemini service initialization'
+        );
+        console.log(
+          'Gemini service will be available once an API key is configured in settings'
+        );
+        return;
+      }
+
       // Create Gemini service with secure storage
       const GeminiService = require('./services/geminiService');
       this.geminiService = new GeminiService(this.secureStorage);
@@ -767,6 +1433,9 @@ class AIOverlayAssistant {
         type: changeEvent.type,
         length: changeEvent.length,
         isSignificant: changeEvent.isSignificant,
+        newValue: changeEvent.newValue
+          ? changeEvent.newValue.substring(0, 100) + '...'
+          : 'empty',
       });
 
       // Send to renderer for UI updates
@@ -780,6 +1449,32 @@ class AIOverlayAssistant {
     this.clipboardMonitor.on('error', error => {
       console.error('Clipboard monitor error:', error);
       this.sendToRenderer('clipboard-error', error);
+    });
+
+    // Performance monitoring events
+    this.clipboardMonitor.on('performance-metrics', metrics => {
+      // console.log('Clipboard performance metrics:', {
+      //   totalPolls: metrics.totalPolls,
+      //   totalChanges: metrics.totalChanges,
+      //   averagePollTime: metrics.averagePollTime,
+      //   adaptiveInterval: metrics.adaptiveInterval,
+      //   isPaused: metrics.isPaused,
+      // });
+      this.sendToRenderer('clipboard-performance-metrics', metrics);
+    });
+
+    this.clipboardMonitor.on('adaptive-interval-updated', data => {
+      console.log('Adaptive polling interval updated:', {
+        newInterval: data.newInterval,
+        reason: data.reason,
+        changeRate: data.changeRate,
+      });
+      this.sendToRenderer('clipboard-adaptive-interval-updated', data);
+    });
+
+    this.clipboardMonitor.on('adaptive-polling-toggled', data => {
+      console.log('Adaptive polling toggled:', data.enabled);
+      this.sendToRenderer('clipboard-adaptive-polling-toggled', data);
     });
   }
 
@@ -921,7 +1616,7 @@ class AIOverlayAssistant {
 
     // Generation events
     this.ollamaService.on('generation-started', data => {
-      console.log('Ollama generation started:', data);
+      console.log('Ollama generation started:');
       this.sendToRenderer('ollama-generation-started', data);
     });
 
@@ -941,6 +1636,182 @@ class AIOverlayAssistant {
     });
   }
 
+  /**
+   * Set up streaming response handlers for real-time updates
+   * @param {Object} service - The AI service instance
+   * @param {string} backend - The backend type ('ollama' or 'gemini')
+   * @param {Object} changeEvent - The original clipboard change event
+   */
+  setupStreamingResponseHandlers(service, backend, changeEvent) {
+    // Clear any existing handlers to prevent duplicates
+    service.removeAllListeners('token-received');
+    service.removeAllListeners('generation-completed');
+    service.removeAllListeners('error');
+
+    // Ensure window is visible before setting up streaming
+    if (this.mainWindow && !this.mainWindow.isVisible()) {
+      console.log('Making window visible for streaming response');
+      this.mainWindow.show();
+    }
+
+    // Handle individual token updates
+    service.on('token-received', tokenData => {
+      // console.log(`Received token from ${backend}:`, {
+      //   token: tokenData.token,
+      //   fullResponse: tokenData.fullResponse?.substring(0, 100) + '...',
+      //   done: tokenData.done,
+      // });
+
+      // Ensure window is visible for each token
+      if (this.mainWindow && !this.mainWindow.isVisible()) {
+        console.log('Making window visible for token update');
+        this.mainWindow.show();
+      }
+
+      // Send token update to renderer for real-time display
+      this.sendToRenderer('ai-token-received', {
+        token: tokenData.token,
+        fullResponse: tokenData.fullResponse || '',
+        done: tokenData.done || false,
+        backend: backend,
+        contentType: changeEvent.type,
+        timestamp: Date.now(),
+        model: tokenData.model || 'N/A',
+      });
+    });
+
+    // Handle generation completion
+    service.on('generation-completed', completionData => {
+      console.log(`Generation completed for ${backend}:`, {
+        fullResponse: completionData.fullResponse?.substring(0, 100) + '...',
+        model: completionData.model,
+        finishReason: completionData.finishReason,
+      });
+
+      // Ensure window is visible for completion
+      if (this.mainWindow && !this.mainWindow.isVisible()) {
+        console.log('Making window visible for completion');
+        this.mainWindow.show();
+      }
+
+      // Send completion event to renderer
+      this.sendToRenderer('ai-generation-completed', {
+        fullResponse: completionData.fullResponse,
+        backend: backend,
+        contentType: changeEvent.type,
+        timestamp: Date.now(),
+        model: completionData.model || 'N/A',
+        finishReason: completionData.finishReason,
+        usage: completionData.usage,
+      });
+    });
+
+    // Handle streaming errors
+    service.on('error', errorData => {
+      console.error(`Streaming error from ${backend}:`, errorData);
+
+      // Ensure window is visible for error display
+      if (this.mainWindow && !this.mainWindow.isVisible()) {
+        console.log('Making window visible for error display');
+        this.mainWindow.show();
+      }
+
+      // Send error to renderer
+      const errorChannel =
+        backend === 'gemini' ? 'gemini-error' : 'ollama-error';
+      this.sendToRenderer(errorChannel, {
+        ...errorData,
+        backend: backend,
+        contentType: changeEvent.type,
+        contentLength: changeEvent.length,
+      });
+    });
+  }
+
+  /**
+   * Determine and validate the appropriate backend based on user settings
+   * @returns {Object} - Backend configuration with validation results
+   */
+  determineBackendFromSettings() {
+    const backend = this.activeBackend || 'ollama';
+    const config = this.backendConfig || {};
+
+    console.log('Determining backend from settings:', {
+      activeBackend: backend,
+      config: config,
+    });
+
+    const validation = {
+      backend: backend,
+      isValid: false,
+      error: null,
+      config: config,
+    };
+
+    try {
+      if (backend === 'gemini') {
+        // Validate Gemini configuration
+        if (!this.geminiService) {
+          console.log('Gemini service not initialized, falling back to Ollama');
+          // Fall back to Ollama if Gemini is not available
+          validation.backend = 'ollama';
+          backend = 'ollama';
+        } else if (!this.geminiService.isConnected) {
+          throw new Error(
+            'Gemini service is not connected. Please check your API key configuration.'
+          );
+        } else {
+          // Check if API key is available
+          const apiKey = this.secureStorage?.retrieveGeminiApiKey();
+          if (!apiKey) {
+            throw new Error(
+              'Gemini API key is not configured. Please set up your API key in settings.'
+            );
+          }
+
+          validation.isValid = true;
+          validation.service = this.geminiService;
+          validation.apiKeyConfigured = true;
+          return validation;
+        }
+      }
+
+      // Validate Ollama configuration (default or fallback)
+      if (!this.ollamaService) {
+        throw new Error('Ollama service is not initialized');
+      }
+
+      if (!this.ollamaService.isConnected) {
+        throw new Error(
+          'Ollama service is not connected. Please ensure Ollama is running locally at http://localhost:11434'
+        );
+      }
+
+      // Check if model is available
+      const currentModel = this.ollamaService.getCurrentModel();
+      if (!currentModel) {
+        throw new Error(
+          'No Ollama model is configured. Please select a model in settings.'
+        );
+      }
+
+      validation.isValid = true;
+      validation.service = this.ollamaService;
+      validation.modelConfigured = true;
+      validation.currentModel = currentModel;
+
+      console.log('Backend validation successful:', {
+        backend: validation.backend,
+        isValid: validation.isValid,
+      });
+    } catch (error) {
+      validation.error = error.message;
+      console.error('Backend validation failed:', error.message);
+    }
+
+    return validation;
+  }
+
   async handleClipboardChange(changeEvent) {
     // Only process significant changes
     if (!changeEvent.isSignificant) {
@@ -954,23 +1825,65 @@ class AIOverlayAssistant {
       return;
     }
 
-    if (!this.ollamaService || !this.ollamaService.isConnected) {
-      console.log('Ollama service not available for AI processing');
-      this.sendToRenderer('ollama-error', {
-        type: 'service-not-connected',
-        error: 'Ollama service is not connected',
+    // Determine and validate backend from user settings
+    const backendValidation = this.determineBackendFromSettings();
+
+    if (!backendValidation.isValid) {
+      console.error('Backend validation failed:', backendValidation.error);
+
+      // Send error to renderer
+      const errorData = {
+        type: 'backend-validation-failed',
+        error: backendValidation.error,
         timestamp: Date.now(),
-      });
+        contentType: changeEvent.type,
+        contentLength: changeEvent.length,
+        backend: backendValidation.backend,
+      };
+
+      this.sendToRenderer('backend-error', errorData);
       return;
     }
 
-    console.log('Processing clipboard content with Ollama:', {
+    const backend = backendValidation.backend;
+    const service = backendValidation.service;
+
+    // Notify if we fell back to Ollama from Gemini
+    if (this.activeBackend === 'gemini' && backend === 'ollama') {
+      console.log('Fell back to Ollama because Gemini is not available');
+      this.sendToRenderer('backend-fallback', {
+        from: 'gemini',
+        to: 'ollama',
+        reason: 'Gemini service not initialized (no API key)',
+        timestamp: Date.now(),
+      });
+    }
+
+    console.log(`Processing clipboard content with ${backend}:`, {
       type: changeEvent.type,
       length: changeEvent.length,
       content: changeEvent.newValue.substring(0, 100) + '...',
+      model: backendValidation.currentModel || 'N/A',
     });
 
     try {
+      // Ensure window is visible before starting AI processing
+      if (this.mainWindow && !this.mainWindow.isVisible()) {
+        console.log('Making window visible before AI processing');
+        this.mainWindow.show();
+      }
+
+      // Send a test message to verify renderer is ready (only in development)
+      if (
+        process.argv.includes('--dev') ||
+        process.env.NODE_ENV === 'development'
+      ) {
+        this.sendToRenderer('test-message', {
+          message: 'Starting AI processing...',
+          timestamp: Date.now(),
+        });
+      }
+
       // Create a prompt based on clipboard content
       const prompt = this.createPromptFromClipboard(changeEvent);
 
@@ -981,27 +1894,95 @@ class AIOverlayAssistant {
 
       console.log('Generated prompt:', prompt.substring(0, 200) + '...');
 
-      // Generate response using Ollama with enhanced options
-      const result = await this.ollamaService.generateResponse(prompt, {
-        temperature: 0.7,
-        maxTokens: 500,
-        stream: true,
-        topP: 0.9,
-        topK: 40,
-        repeatPenalty: 1.1,
-      });
+      // Set up streaming response handling
+      this.setupStreamingResponseHandlers(service, backend, changeEvent);
 
-      console.log('AI response generated successfully');
+      // Generate response using the validated backend service with streaming
+      let result;
+      if (backend === 'gemini') {
+        result = await service.generateResponse(prompt, {
+          temperature: 0.7,
+          maxTokens: 500,
+          stream: true,
+        });
+      } else {
+        // Ollama with enhanced options
+        result = await service.generateResponse(prompt, {
+          temperature: 0.7,
+          maxTokens: 500,
+          stream: true,
+          topP: 0.9,
+          topK: 40,
+          repeatPenalty: 1.1,
+        });
+      }
+
+      console.log(`AI response generated successfully using ${backend}`);
 
       // Store the response in application state for potential reuse
       this.lastGeneratedResponse = {
         prompt: prompt,
-        response: result,
+        response: result.response || result,
         timestamp: Date.now(),
         contentType: changeEvent.type,
+        backend: backend,
+        model: backendValidation.currentModel || 'N/A',
       };
+
+      // Send final success event to renderer
+      console.log(
+        'Sending ai-response-completed to renderer with response length:',
+        result.response || result ? (result.response || result).length : 0
+      );
+
+      // Ensure window is visible before sending response
+      if (this.mainWindow && !this.mainWindow.isVisible()) {
+        console.log('Making window visible before sending response');
+        this.mainWindow.show();
+      }
+
+      // Force window to be visible and focused
+      if (this.mainWindow) {
+        console.log('Forcing window to be visible and focused');
+        this.mainWindow.show();
+        this.mainWindow.focus();
+        this.mainWindow.setAlwaysOnTop(true);
+        setTimeout(() => {
+          this.mainWindow.setAlwaysOnTop(false);
+        }, 1000);
+      }
+
+      console.log('Window visibility before sending response:', {
+        windowExists: !!this.mainWindow,
+        isVisible: this.mainWindow ? this.mainWindow.isVisible() : 'No window',
+        isFocused: this.mainWindow ? this.mainWindow.isFocused() : 'No window',
+        isDestroyed: this.mainWindow
+          ? this.mainWindow.isDestroyed()
+          : 'No window',
+      });
+
+      // Send test message first
+      this.sendToRenderer('test-message', {
+        message: 'Test from main process',
+      });
+
+      // Send another test message to verify IPC is working
+      console.log('Sending test message to verify IPC communication');
+      this.sendToRenderer('test-response-from-main', {
+        message: 'IPC test from main process',
+        timestamp: Date.now(),
+        responseLength: result.response ? result.response.length : 0,
+      });
+
+      this.sendToRenderer('ai-response-completed', {
+        response: result.response || result,
+        backend: backend,
+        contentType: changeEvent.type,
+        timestamp: Date.now(),
+        model: backendValidation.currentModel || 'N/A',
+      });
     } catch (error) {
-      console.error('Failed to generate AI response:', error);
+      console.error(`Failed to generate AI response with ${backend}:`, error);
 
       // Enhanced error reporting with more context
       const errorData = {
@@ -1010,9 +1991,14 @@ class AIOverlayAssistant {
         timestamp: Date.now(),
         contentType: changeEvent.type,
         contentLength: changeEvent.length,
+        backend: backend,
+        model: backendValidation.currentModel || 'N/A',
       };
 
-      this.sendToRenderer('ollama-error', errorData);
+      // Send error to renderer with backend-specific channel
+      const errorChannel =
+        backend === 'gemini' ? 'gemini-error' : 'ollama-error';
+      this.sendToRenderer(errorChannel, errorData);
     }
   }
 
@@ -1025,9 +2011,121 @@ class AIOverlayAssistant {
     return 'generation-failed';
   }
 
-  createPromptFromClipboard(changeEvent) {
-    const content = changeEvent.newValue;
+  /**
+   * Process and validate clipboard text before sending to AI backend
+   * @param {Object} changeEvent - Clipboard change event
+   * @returns {Object} - Processed text data with validation results
+   */
+  processAndValidateClipboardText(changeEvent) {
+    const rawContent = changeEvent.newValue;
     const contentType = changeEvent.type;
+
+    // Basic validation
+    if (!rawContent || typeof rawContent !== 'string') {
+      throw new Error('Invalid clipboard content: not a string');
+    }
+
+    // Remove leading/trailing whitespace
+    let processedContent = rawContent.trim();
+
+    // Check for empty content after trimming
+    if (!processedContent) {
+      throw new Error('Clipboard content is empty after processing');
+    }
+
+    // Validate content length
+    if (processedContent.length < 3) {
+      throw new Error('Clipboard content is too short (minimum 3 characters)');
+    }
+
+    if (processedContent.length > 10000) {
+      throw new Error(
+        'Clipboard content is too long (maximum 10,000 characters)'
+      );
+    }
+
+    // Filter out unsupported formats
+    if (this.isUnsupportedFormat(processedContent)) {
+      throw new Error('Unsupported clipboard format detected');
+    }
+
+    // Sanitize content for AI processing
+    processedContent = this.sanitizeContent(processedContent);
+
+    // Validate final processed content
+    if (!processedContent || processedContent.trim().length === 0) {
+      throw new Error('Content became empty after sanitization');
+    }
+
+    return {
+      originalContent: rawContent,
+      processedContent: processedContent,
+      contentType: contentType,
+      length: processedContent.length,
+      isValid: true,
+      sanitizationApplied: true,
+    };
+  }
+
+  /**
+   * Check if content is in an unsupported format
+   * @param {string} content - Content to check
+   * @returns {boolean} - Whether the format is unsupported
+   */
+  isUnsupportedFormat(content) {
+    // Check for binary data indicators
+    if (content.includes('\x00') || content.includes('\ufffd')) {
+      return true;
+    }
+
+    // Check for file paths (likely not text content)
+    if (content.includes('\\') && content.includes(':')) {
+      return true;
+    }
+
+    // Check for very long lines (likely not readable text)
+    const lines = content.split('\n');
+    const longLines = lines.filter(line => line.length > 200);
+    if (longLines.length > lines.length * 0.5) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Sanitize content for AI processing
+   * @param {string} content - Content to sanitize
+   * @returns {string} - Sanitized content
+   */
+  sanitizeContent(content) {
+    // Remove null characters
+    let sanitized = content.replace(/\x00/g, '');
+
+    // Normalize line endings
+    sanitized = sanitized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    // Remove excessive whitespace
+    sanitized = sanitized.replace(/\n\s*\n\s*\n/g, '\n\n'); // Max 2 consecutive newlines
+    sanitized = sanitized.replace(/[ \t]+/g, ' '); // Normalize spaces/tabs
+
+    // Trim each line
+    sanitized = sanitized
+      .split('\n')
+      .map(line => line.trim())
+      .join('\n');
+
+    // Final trim
+    sanitized = sanitized.trim();
+
+    return sanitized;
+  }
+
+  createPromptFromClipboard(changeEvent) {
+    // First process and validate the clipboard text
+    const processedData = this.processAndValidateClipboardText(changeEvent);
+    const content = processedData.processedContent;
+    const contentType = processedData.contentType;
 
     switch (contentType) {
       case 'code':
@@ -1043,8 +2141,18 @@ class AIOverlayAssistant {
   }
 
   sendToRenderer(event, data) {
+    // console.log(`Sending ${event} to renderer:`, {
+    //   hasMainWindow: !!this.mainWindow,
+    //   hasWebContents: !!(this.mainWindow && this.mainWindow.webContents),
+    //   dataKeys: data ? Object.keys(data) : 'no data',
+    // });
+
     if (this.mainWindow && this.mainWindow.webContents) {
       this.mainWindow.webContents.send(event, data);
+    } else {
+      console.error(
+        `Cannot send ${event}: mainWindow or webContents not available`
+      );
     }
   }
 
@@ -1521,6 +2629,41 @@ class AIOverlayAssistant {
       return 'long-text';
     }
     return 'text';
+  }
+
+  // Process question with AI backend
+  processQuestion(question) {
+    console.log('Processing question:', question);
+
+    if (!this.currentService) {
+      console.error('No AI service available');
+      this.sendToRenderer('error-message', {
+        error: 'No AI service available. Please check your settings.',
+      });
+      return;
+    }
+
+    // Create a prompt from the question
+    const prompt = `Question: ${question}\n\nPlease provide a helpful and informative response.`;
+
+    // Generate response using the current service
+    this.currentService
+      .generateResponse(prompt)
+      .then(result => {
+        console.log('Question processed successfully');
+        this.sendToRenderer('ai-response-completed', {
+          backend: this.currentService.name,
+          model: this.backendConfig.model,
+          contentType: 'text',
+          response: result.response,
+        });
+      })
+      .catch(error => {
+        console.error('Error processing question:', error);
+        this.sendToRenderer('error-message', {
+          error: `Failed to process question: ${error.message}`,
+        });
+      });
   }
 }
 

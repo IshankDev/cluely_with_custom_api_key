@@ -27,6 +27,34 @@ class ClipboardMonitor extends EventEmitter {
     this.resumeThreshold = 5000; // 5 seconds to resume
     this.lastActivityTime = Date.now();
 
+    // Adaptive polling configuration
+    this.adaptivePolling = {
+      enabled: true,
+      minInterval: 500, // Minimum 500ms
+      maxInterval: 5000, // Maximum 5 seconds
+      currentInterval: 1000,
+      activityThreshold: 10000, // 10 seconds
+      inactivityThreshold: 30000, // 30 seconds
+      changeRateThreshold: 5, // Changes per minute
+      lastChangeRate: 0,
+      changeHistory: [],
+    };
+
+    // Performance monitoring
+    this.performanceMetrics = {
+      startTime: 0,
+      totalPolls: 0,
+      totalChanges: 0,
+      averagePollTime: 0,
+      cpuUsage: 0,
+      memoryUsage: 0,
+      lastMetricsUpdate: 0,
+    };
+
+    // Debouncing for rapid changes
+    this.debounceTimer = null;
+    this.debounceDelay = 100; // 100ms debounce
+
     // Bind methods to preserve context
     this.startMonitoring = this.startMonitoring.bind(this);
     this.stopMonitoring = this.stopMonitoring.bind(this);
@@ -34,6 +62,9 @@ class ClipboardMonitor extends EventEmitter {
     this.handleClipboardChange = this.handleClipboardChange.bind(this);
     this.optimizePolling = this.optimizePolling.bind(this);
     this.handlePollingError = this.handlePollingError.bind(this);
+    this.updateAdaptiveInterval = this.updateAdaptiveInterval.bind(this);
+    this.calculatePerformanceMetrics =
+      this.calculatePerformanceMetrics.bind(this);
   }
 
   /**
@@ -50,6 +81,11 @@ class ClipboardMonitor extends EventEmitter {
     try {
       // Set polling interval
       this.pollingIntervalMs = intervalMs;
+      this.adaptivePolling.currentInterval = intervalMs;
+
+      // Initialize performance metrics
+      this.performanceMetrics.startTime = Date.now();
+      this.performanceMetrics.lastMetricsUpdate = Date.now();
 
       // Get initial clipboard value
       this.previousValue = clipboard.readText() || '';
@@ -72,6 +108,7 @@ class ClipboardMonitor extends EventEmitter {
         initialValue: this.previousValue,
         timestamp: Date.now(),
         status: this.getStatus(),
+        adaptivePolling: this.adaptivePolling.enabled,
       });
 
       return true;
@@ -97,11 +134,19 @@ class ClipboardMonitor extends EventEmitter {
     }
 
     try {
-      // Clear polling interval
+      // Clear polling interval and debounce timer
       if (this.pollingInterval) {
         clearInterval(this.pollingInterval);
         this.pollingInterval = null;
       }
+
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
+
+      // Calculate final performance metrics
+      this.calculatePerformanceMetrics();
 
       const finalStatus = this.getStatus();
       this.isMonitoring = false;
@@ -109,11 +154,17 @@ class ClipboardMonitor extends EventEmitter {
 
       console.log('Clipboard monitoring stopped');
 
-      // Emit comprehensive stop event
+      // Emit comprehensive stop event with performance data
       this.emit('monitoring-stopped', {
         finalStatus: finalStatus,
         timestamp: Date.now(),
         duration: Date.now() - finalStatus.lastChangeTime,
+        performance: this.performanceMetrics,
+        adaptivePolling: {
+          enabled: this.adaptivePolling.enabled,
+          finalInterval: this.adaptivePolling.currentInterval,
+          changeRate: this.adaptivePolling.lastChangeRate,
+        },
       });
 
       return true;
@@ -218,6 +269,9 @@ class ClipboardMonitor extends EventEmitter {
     const now = Date.now();
     const timeSinceLastActivity = now - this.lastActivityTime;
 
+    // Update performance metrics
+    this.calculatePerformanceMetrics();
+
     // Pause monitoring if no activity for threshold
     if (!this.isPaused && timeSinceLastActivity > this.pauseThreshold) {
       this.isPaused = true;
@@ -238,6 +292,109 @@ class ClipboardMonitor extends EventEmitter {
         timestamp: now,
       });
     }
+
+    // Update adaptive polling interval
+    if (this.adaptivePolling.enabled) {
+      this.updateAdaptiveInterval();
+    }
+  }
+
+  /**
+   * Update adaptive polling interval based on activity
+   */
+  updateAdaptiveInterval() {
+    const now = Date.now();
+    const timeSinceLastActivity = now - this.lastActivityTime;
+    const timeSinceLastChange = now - this.lastChangeTime;
+
+    // Calculate change rate (changes per minute)
+    const oneMinuteAgo = now - 60000;
+    this.adaptivePolling.changeHistory =
+      this.adaptivePolling.changeHistory.filter(
+        timestamp => timestamp > oneMinuteAgo
+      );
+    this.adaptivePolling.lastChangeRate =
+      this.adaptivePolling.changeHistory.length;
+
+    let newInterval = this.adaptivePolling.currentInterval;
+
+    // Increase interval if no recent activity
+    if (timeSinceLastActivity > this.adaptivePolling.inactivityThreshold) {
+      newInterval = Math.min(
+        this.adaptivePolling.maxInterval,
+        this.adaptivePolling.currentInterval * 1.5
+      );
+    }
+    // Decrease interval if recent activity
+    else if (timeSinceLastActivity < this.adaptivePolling.activityThreshold) {
+      newInterval = Math.max(
+        this.adaptivePolling.minInterval,
+        this.adaptivePolling.currentInterval * 0.8
+      );
+    }
+    // Adjust based on change rate
+    else if (
+      this.adaptivePolling.lastChangeRate >
+      this.adaptivePolling.changeRateThreshold
+    ) {
+      newInterval = Math.max(
+        this.adaptivePolling.minInterval,
+        this.adaptivePolling.currentInterval * 0.7
+      );
+    }
+
+    // Apply new interval if it changed significantly
+    if (Math.abs(newInterval - this.adaptivePolling.currentInterval) > 100) {
+      this.adaptivePolling.currentInterval = newInterval;
+      this.pollingIntervalMs = newInterval;
+
+      // Restart polling with new interval
+      if (this.isMonitoring && this.pollingInterval) {
+        clearInterval(this.pollingInterval);
+        this.pollingInterval = setInterval(
+          this.pollClipboard,
+          this.pollingIntervalMs
+        );
+      }
+
+      console.log(`Adaptive polling interval updated to ${newInterval}ms`);
+      this.emit('adaptive-interval-updated', {
+        newInterval: newInterval,
+        reason: 'activity-based',
+        timestamp: now,
+        changeRate: this.adaptivePolling.lastChangeRate,
+      });
+    }
+  }
+
+  /**
+   * Calculate and update performance metrics
+   */
+  calculatePerformanceMetrics() {
+    const now = Date.now();
+
+    // Update metrics every 10 seconds
+    if (now - this.performanceMetrics.lastMetricsUpdate < 10000) {
+      return;
+    }
+
+    this.performanceMetrics.lastMetricsUpdate = now;
+    this.performanceMetrics.totalPolls = this.pollCount;
+    this.performanceMetrics.totalChanges = this.changeCount;
+
+    // Calculate average poll time
+    if (this.pollCount > 0) {
+      this.performanceMetrics.averagePollTime =
+        (now - this.performanceMetrics.startTime) / this.pollCount;
+    }
+
+    // Emit performance metrics
+    this.emit('performance-metrics', {
+      ...this.performanceMetrics,
+      timestamp: now,
+      adaptiveInterval: this.adaptivePolling.currentInterval,
+      isPaused: this.isPaused,
+    });
   }
 
   /**
@@ -260,31 +417,48 @@ class ClipboardMonitor extends EventEmitter {
       return;
     }
 
-    // Update state
-    this.previousValue = newValue;
-    this.lastChangeTime = now;
-    this.changeCount++;
+    // Clear existing debounce timer
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
 
-    // Emit change event
-    const changeEvent = {
-      newValue: newValue,
-      oldValue: oldValue,
-      timestamp: now,
-      isEmpty: !newValue || newValue.trim() === '',
-      length: newValue ? newValue.length : 0,
-      type: this.detectContentType(newValue),
-      isSignificant: this.isSignificantChange(newValue, oldValue),
-    };
+    // Debounce rapid changes
+    this.debounceTimer = setTimeout(() => {
+      // Update state
+      this.previousValue = newValue;
+      this.lastChangeTime = now;
+      this.changeCount++;
 
-    console.log('Clipboard change detected:', {
-      length: changeEvent.length,
-      isEmpty: changeEvent.isEmpty,
-      type: changeEvent.type,
-      isSignificant: changeEvent.isSignificant,
-      timestamp: new Date(now).toISOString(),
-    });
+      // Track change for adaptive polling
+      this.adaptivePolling.changeHistory.push(now);
 
-    this.emit('clipboard-changed', changeEvent);
+      // Emit change event
+      const changeEvent = {
+        newValue: newValue,
+        oldValue: oldValue,
+        timestamp: now,
+        isEmpty: !newValue || newValue.trim() === '',
+        length: newValue ? newValue.length : 0,
+        type: this.detectContentType(newValue),
+        isSignificant: this.isSignificantChange(newValue, oldValue),
+        performance: {
+          pollCount: this.pollCount,
+          changeCount: this.changeCount,
+          averagePollTime: this.performanceMetrics.averagePollTime,
+        },
+      };
+
+      console.log('Clipboard change detected:', {
+        length: changeEvent.length,
+        isEmpty: changeEvent.isEmpty,
+        type: changeEvent.type,
+        isSignificant: changeEvent.isSignificant,
+        timestamp: new Date(now).toISOString(),
+        performance: changeEvent.performance,
+      });
+
+      this.emit('clipboard-changed', changeEvent);
+    }, this.debounceDelay);
   }
 
   /**
@@ -411,11 +585,20 @@ class ClipboardMonitor extends EventEmitter {
       pollCount: this.pollCount,
       changeCount: this.changeCount,
       retryCount: this.retryCount,
+      adaptivePolling: {
+        enabled: this.adaptivePolling.enabled,
+        currentInterval: this.adaptivePolling.currentInterval,
+        changeRate: this.adaptivePolling.lastChangeRate,
+        changeHistory: this.adaptivePolling.changeHistory.length,
+      },
       performance: {
         pollsPerMinute: this.calculatePollsPerMinute(),
         changesPerMinute: this.calculateChangesPerMinute(),
         averagePollInterval: this.calculateAveragePollInterval(),
-        uptime: Date.now() - this.lastChangeTime,
+        averagePollTime: this.performanceMetrics.averagePollTime,
+        uptime: this.isMonitoring ? Date.now() - this.lastChangeTime : 0,
+        totalPolls: this.performanceMetrics.totalPolls,
+        totalChanges: this.performanceMetrics.totalChanges,
       },
     };
   }
@@ -539,6 +722,73 @@ class ClipboardMonitor extends EventEmitter {
       'clipboard-cleared': this.listenerCount('clipboard-cleared'),
       polling: this.listenerCount('polling'),
       error: this.listenerCount('error'),
+      'performance-metrics': this.listenerCount('performance-metrics'),
+      'adaptive-interval-updated': this.listenerCount(
+        'adaptive-interval-updated'
+      ),
+    };
+  }
+
+  /**
+   * Get detailed performance statistics
+   * @returns {Object} Performance statistics
+   */
+  getPerformanceStats() {
+    const now = Date.now();
+    const uptime = this.isMonitoring
+      ? now - this.performanceMetrics.startTime
+      : 0;
+
+    return {
+      uptime: uptime,
+      totalPolls: this.pollCount,
+      totalChanges: this.changeCount,
+      averagePollTime: this.performanceMetrics.averagePollTime,
+      pollsPerMinute: this.calculatePollsPerMinute(),
+      changesPerMinute: this.calculateChangesPerMinute(),
+      currentInterval: this.pollingIntervalMs,
+      adaptiveInterval: this.adaptivePolling.currentInterval,
+      isPaused: this.isPaused,
+      changeRate: this.adaptivePolling.lastChangeRate,
+      efficiency: this.calculateEfficiency(),
+      timestamp: now,
+    };
+  }
+
+  /**
+   * Calculate polling efficiency
+   * @returns {number} Efficiency percentage
+   */
+  calculateEfficiency() {
+    if (this.pollCount === 0) return 100;
+
+    const changeRatio = this.changeCount / this.pollCount;
+    const efficiency = Math.min(100, changeRatio * 100);
+
+    return Math.round(efficiency);
+  }
+
+  /**
+   * Enable or disable adaptive polling
+   * @param {boolean} enabled - Whether to enable adaptive polling
+   */
+  setAdaptivePolling(enabled) {
+    this.adaptivePolling.enabled = enabled;
+    console.log(`Adaptive polling ${enabled ? 'enabled' : 'disabled'}`);
+    this.emit('adaptive-polling-toggled', {
+      enabled: enabled,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Get adaptive polling configuration
+   * @returns {Object} Adaptive polling configuration
+   */
+  getAdaptivePollingConfig() {
+    return {
+      ...this.adaptivePolling,
+      changeHistory: this.adaptivePolling.changeHistory.length,
     };
   }
 }

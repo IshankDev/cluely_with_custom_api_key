@@ -4,7 +4,7 @@ class OllamaService extends EventEmitter {
   constructor() {
     super();
     this.baseUrl = 'http://localhost:11434/api';
-    this.defaultModel = 'gpt-oss:20b';
+    this.defaultModel = 'llama3.1:8b';
     this.currentModel = this.defaultModel;
     this.isConnected = false;
     this.availableModels = [];

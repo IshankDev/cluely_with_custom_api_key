@@ -163,3 +163,5 @@ tasks/
 # Local configuration files
 config.local.*
 settings.local.* 
+/playwright-report
+/test-results

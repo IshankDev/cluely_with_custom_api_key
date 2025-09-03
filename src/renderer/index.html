@@ -1,198 +1,114 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="AI Overlay Assistant - Intelligent clipboard processing" />
-    <title>AI Overlay Assistant</title>
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <!-- Main overlay container with high z-index for proper layering -->
-    <div id="overlay-container" class="overlay-container" role="application" aria-label="AI Overlay Assistant">
-      
-      <!-- Response bubble with semantic structure -->
-      <div id="response-bubble" class="response-bubble" role="region" aria-label="AI Response">
-        
-        <!-- Header with status and controls -->
-        <header class="response-header">
-          <div class="status-indicator" id="status-indicator" aria-label="Status">
-            <span class="status-dot" id="status-dot"></span>
-            <span class="status-text" id="status-text">Ready</span>
-          </div>
-          <div class="overlay-controls">
-            <button
-              id="settings-btn"
-              class="control-btn settings-btn"
-              title="Open settings"
-              aria-label="Open settings"
-            >
-              <span class="btn-icon">⚙️</span>
-            </button>
-            <button
-              id="minimize-btn"
-              class="control-btn minimize-btn"
-              title="Minimize overlay"
-              aria-label="Minimize overlay"
-            >
-              <span class="btn-icon">−</span>
-            </button>
-            <button 
-              id="close-btn" 
-              class="control-btn close-btn" 
-              title="Close overlay"
-              aria-label="Close overlay"
-            >
-              <span class="btn-icon">×</span>
-            </button>
-          </div>
-        </header>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Overlay Assistant</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="overlay-container" class="overlay-container position-center-top">
+    <!-- Horizontal Control Bar -->
+    <div id="control-bar" class="control-bar">
+      <!-- Left side - AI Controls -->
+      <div class="control-left">
+        <!-- Listen Button (Active) -->
+        <button id="listen-btn" class="control-btn listen-btn active">
+          <svg class="control-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C13.1 2 14 2.9 14 4V8C14 9.1 13.1 10 12 10S10 9.1 10 8V4C10 2.9 10.9 2 12 2Z"/>
+            <path d="M19 10V8C19 4.1 15.9 1 12 1S5 4.1 5 8V10C5 13.9 8.1 17 12 17S19 13.9 19 10Z"/>
+            <path d="M12 19C13.1 19 14 19.9 14 21V23H10V21C10 19.9 10.9 19 12 19Z"/>
+          </svg>
+          <span class="control-text">Listen</span>
+        </button>
 
-        <!-- Main content area -->
-        <main class="response-content">
-          <div id="response-text" class="response-text" role="log" aria-live="polite">
-            Ready for AI assistance...
-          </div>
-          
-          <!-- Loading indicator -->
-          <div id="loading-indicator" class="loading-indicator" aria-hidden="true">
-            <div class="loading-spinner"></div>
-            <span class="loading-text">Processing...</span>
-          </div>
-        </main>
-
-        <!-- Footer with additional controls -->
-        <footer class="response-footer" aria-hidden="true">
-          <div class="footer-controls">
-            <button id="copy-btn" class="footer-btn" title="Copy response" aria-label="Copy response">
-              <span class="btn-icon">📋</span>
-            </button>
-            <button id="clear-btn" class="footer-btn" title="Clear response" aria-label="Clear response">
-              <span class="btn-icon">🗑️</span>
-            </button>
-            <button id="process-clipboard-btn" class="footer-btn" title="Process clipboard" aria-label="Process clipboard">
-              <span class="btn-icon">🤖</span>
-            </button>
-          </div>
-        </footer>
-      </div>
-
-      <!-- Settings Panel -->
-      <div id="settings-panel" class="settings-panel" role="dialog" aria-label="Settings" aria-hidden="true">
-        <div class="settings-header">
-          <h3 class="settings-title">Settings</h3>
-          <button id="close-settings-btn" class="control-btn close-btn" title="Close settings" aria-label="Close settings">
-            <span class="btn-icon">×</span>
-          </button>
-        </div>
-        
-        <div class="settings-content">
-          <!-- Backend Selection -->
-          <div class="settings-section">
-            <h4 class="section-title">AI Backend</h4>
-            <div class="backend-selection">
-              <label class="radio-label">
-                <input type="radio" name="backend" value="ollama" id="backend-ollama" class="radio-input">
-                <span class="radio-custom"></span>
-                <span class="radio-text">Ollama (Local)</span>
-              </label>
-              <label class="radio-label">
-                <input type="radio" name="backend" value="gemini" id="backend-gemini" class="radio-input">
-                <span class="radio-custom"></span>
-                <span class="radio-text">Gemini (Cloud)</span>
-              </label>
-            </div>
-            <div class="validation-error" id="backend-validation-error" style="display: none;"></div>
-          </div>
-
-          <!-- Model Configuration -->
-          <div class="settings-section">
-            <h4 class="section-title">Model Configuration</h4>
-            <div class="form-group">
-              <label for="model-name" class="form-label">Model Name</label>
-              <input type="text" id="model-name" class="form-input" placeholder="e.g., llama3.2, gemini-1.5-flash">
-              <div class="form-help">Enter the model name for your selected backend</div>
-              <div class="validation-error" id="model-validation-error" style="display: none;"></div>
-            </div>
-          </div>
-
-          <!-- API Key Configuration (Gemini only) -->
-          <div class="settings-section" id="api-key-section" style="display: none;">
-            <h4 class="section-title">API Key Configuration</h4>
-            <div class="form-group">
-              <label for="api-key" class="form-label">Gemini API Key</label>
-              <div class="api-key-input-group">
-                <input type="password" id="api-key" class="form-input" placeholder="Enter your Gemini API key">
-                <button id="toggle-api-key-btn" class="toggle-btn" title="Show/hide API key" aria-label="Show/hide API key">
-                  <span class="btn-icon">👁️</span>
-                </button>
-              </div>
-              <div class="form-help">Your API key is stored securely using system encryption</div>
-              <div class="validation-error" id="api-key-validation-error" style="display: none;"></div>
-            </div>
-            
-            <!-- API Key Status -->
-            <div class="api-key-status" id="api-key-status">
-              <div class="status-item">
-                <span class="status-icon" id="api-key-status-icon">⏳</span>
-                <span class="status-text" id="api-key-status-text">Checking API key...</span>
-              </div>
-            </div>
-
-            <!-- API Key Actions -->
-            <div class="api-key-actions">
-              <button id="test-api-key-btn" class="action-btn secondary-btn" disabled>
-                <span class="btn-icon">🧪</span>
-                Test Connection
-              </button>
-              <button id="validate-api-key-btn" class="action-btn secondary-btn" disabled>
-                <span class="btn-icon">✓</span>
-                Validate Key
-              </button>
-            </div>
-          </div>
-
-          <!-- Backend Status -->
-          <div class="settings-section">
-            <h4 class="section-title">Backend Status</h4>
-            <div class="backend-status" id="backend-status">
-              <div class="status-item">
-                <span class="status-icon" id="backend-status-icon">⏳</span>
-                <span class="status-text" id="backend-status-text">Checking connection...</span>
-              </div>
-            </div>
-            <div class="backend-actions">
-              <button id="test-backend-btn" class="action-btn secondary-btn">
-                <span class="btn-icon">🔍</span>
-                Test Connection
-              </button>
-              <button id="refresh-status-btn" class="action-btn secondary-btn">
-                <span class="btn-icon">🔄</span>
-                Refresh Status
-              </button>
-            </div>
-          </div>
-
-          <!-- Save/Cancel Buttons -->
-          <div class="settings-actions">
-            <button id="save-settings-btn" class="action-btn primary-btn">
-              <span class="btn-icon">💾</span>
-              Save Settings
-            </button>
-            <button id="cancel-settings-btn" class="action-btn secondary-btn">
-              Cancel
-            </button>
-          </div>
+        <!-- Ask Question Input -->
+        <div class="question-input-container">
+          <svg class="input-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M3 17.25V21H6.75L17.81 9.94L14.06 6.19L3 17.25ZM20.71 7.04C21.1 6.65 21.1 6.02 20.71 5.63L18.37 3.29C17.98 2.9 17.35 2.9 16.96 3.29L15.13 5.12L18.88 8.87L20.71 7.04Z"/>
+          </svg>
+          <input 
+            id="question-input" 
+            type="text" 
+            class="question-input" 
+            placeholder="Ask question"
+            autocomplete="off"
+          >
         </div>
       </div>
 
-      <!-- Minimized state indicator -->
-      <div id="minimized-indicator" class="minimized-indicator" aria-hidden="true">
-        <div class="minimized-icon">🤖</div>
-        <span class="minimized-text">AI Assistant</span>
+      <!-- Right side - Window Controls -->
+      <div class="control-right">
+        <!-- Visibility Toggle (Eye Icon) -->
+        <button id="visibility-toggle" class="control-btn visibility-btn" title="Toggle visibility">
+          <svg class="control-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 4.5C7 4.5 2.73 7.61 1 12C2.73 16.39 7 19.5 12 19.5C17 19.5 21.27 16.39 23 12C21.27 7.61 17 4.5 12 4.5ZM12 17C9.24 17 7 14.76 7 12C7 9.24 9.24 7 12 7C14.76 7 17 9.24 17 12C17 14.76 14.76 17 12 17ZM12 9C10.34 9 9 10.34 9 12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12C15 10.34 13.66 9 12 9Z"/>
+          </svg>
+        </button>
+
+        <!-- Screen Share Toggle Button -->
+        <button id="screen-share-toggle" class="control-btn screen-share-btn active" title="Screen Sharing Control: Enabled">
+          <svg class="control-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+          </svg>
+        </button>
+
+        <!-- Settings Button -->
+        <button id="settings-btn" class="control-btn settings-btn" title="Settings">
+          <svg class="control-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+          </svg>
+        </button>
+
+        <!-- Drag Handle (Grid Icon) -->
+        <button id="drag-handle" class="control-btn drag-handle" title="Drag to move">
+          <svg class="control-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M3 3H7V7H3V3ZM9 3H13V7H9V3ZM15 3H19V7H15V3ZM3 9H7V13H3V9ZM9 9H13V13H9V9ZM15 9H19V13H15V9ZM3 15H7V19H3V15ZM9 15H13V19H9V15ZM15 15H19V19H15V15Z"/>
+          </svg>
+        </button>
+
+        <!-- Close Button -->
+        <button id="close-btn" class="control-btn close-btn" title="Close">
+          <svg class="control-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5L12 10.59L6.41 5L5 6.41L10.59 12L5 17.59L6.41 19L12 13.41L17.59 19L19 17.59L13.41 12L19 6.41Z"/>
+          </svg>
+        </button>
       </div>
     </div>
 
-    <script src="renderer.js"></script>
-  </body>
+    <!-- Response Panel (Hidden by default) -->
+    <div id="response-panel" class="response-panel hidden">
+      <div class="response-header">
+        <div class="status-indicator">
+          <span id="status-dot" class="status-dot"></span>
+          <span id="status-text" class="status-text">Ready</span>
+        </div>
+        <div class="response-controls">
+          <button id="copy-btn" class="response-btn" title="Copy response">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1ZM19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5ZM19 21H8V7H19V21Z"/>
+            </svg>
+          </button>
+          <button id="clear-btn" class="response-btn" title="Clear response">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 6.41L17.59 5L12 10.59L6.41 5L5 6.41L10.59 12L5 17.59L6.41 19L12 13.41L17.59 19L19 17.59L13.41 12L19 6.41Z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="response-text" class="response-text" role="log" aria-live="polite">
+        Ready for AI assistance
+      </div>
+    </div>
+  </div>
+
+  <script>
+    if (process.argv && (process.argv.includes('--dev') || process.env.NODE_ENV === 'development')) {
+      console.log('AI Overlay Assistant HTML loaded');
+      console.log('Development mode detected');
+    }
+  </script>
+  <script src="renderer.js"></script>
+  <script src="test.js"></script>
+</body>
 </html>
